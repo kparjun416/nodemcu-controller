@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodeMCU LED Controller</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for a cleaner look */
+        body {
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f4f7f6;
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="max-w-md w-full bg-white p-8 rounded-xl shadow-2xl text-center">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">LED Remote Control</h1>
+        <p class="text-sm text-gray-500 mb-8">
+            Click the buttons below to send commands to your NodeMCU.
+        </p>
+
+        <!-- Status Message Box -->
+        <div id="statusMessage" class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-8 rounded-lg text-left hidden" role="alert">
+            <p class="font-bold">Command Sent</p>
+            <p id="statusText" class="text-sm"></p>
+        </div>
+
+        <div class="flex flex-col space-y-6">
+            <!-- ON Button -->
+            <button id="onButton" 
+                    data-command="ON"
+                    class="control-button w-full py-4 text-white font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 
+                           bg-green-500 hover:bg-green-600 shadow-lg shadow-green-200 focus:outline-none focus:ring-4 focus:ring-green-300">
+                <span class="text-2xl">🟢 LED ON</span>
+            </button>
+
+            <!-- OFF Button -->
+            <button id="offButton" 
+                    data-command="OFF"
+                    class="control-button w-full py-4 text-white font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 
+                           bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200 focus:outline-none focus:ring-4 focus:ring-red-300">
+                <span class="text-2xl">🔴 LED OFF</span>
+            </button>
+        </div>
+
+        <p class="text-xs text-gray-400 mt-6">
+            Current Target: <code id="targetUrlDisplay">http://192.168.1.100</code>
+        </p>
+
+        <p class="text-xs text-red-500 mt-2 font-medium">
+            ⚠️ **IMPORTANT:** You must change the `NODE_MCU_IP` in the script below to your NodeMCU's actual IP address!
+        </p>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURATION ---
+        // REPLACE THIS IP ADDRESS with the IP address your NodeMCU gets from your Wi-Fi router.
+        const NODE_MCU_IP = "192.168.1.100"; 
+        // ------------------------
+
+        const displayUrl = document.getElementById('targetUrlDisplay');
+        const statusMessage = document.getElementById('statusMessage');
+        const statusText = document.getElementById('statusText');
+        const buttons = document.querySelectorAll('.control-button');
+
+        // Update the displayed target URL
+        displayUrl.textContent = `http://${NODE_MCU_IP}/...`;
+
+        /**
+         * Sends an HTTP GET request to the NodeMCU with the specified command.
+         * @param {string} command - The command to send (e.g., 'ON' or 'OFF').
+         */
+        async function sendCommand(command) {
+            // The complete URL the NodeMCU expects to receive
+            const url = `http://${NODE_MCU_IP}/led?state=${command}`;
+            
+            // Show loading state (optional: disable buttons here too)
+            statusText.textContent = `Sending command to ${url}...`;
+            statusMessage.classList.remove('hidden', 'bg-red-100', 'border-red-500', 'text-red-700', 'bg-green-100', 'border-green-500', 'text-green-700');
+            statusMessage.classList.add('bg-blue-100', 'border-blue-500', 'text-blue-700');
+
+
+            // 1. We will retry the fetch operation up to 3 times with exponential backoff.
+            //    This helps handle temporary network hiccups, especially when connecting to a local device.
+            const maxRetries = 3;
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, { method: 'GET', mode: 'no-cors' });
+
+                    // Since the NodeMCU might return a plain text success or even nothing (due to 'no-cors'), 
+                    // we'll just check if the fetch succeeded without throwing an error.
+                    // If you were to remove 'no-cors', you could check 'response.ok' here.
+
+                    statusText.textContent = `Successfully sent '${command}'. (Attempt ${i + 1} of ${maxRetries})`;
+                    statusMessage.classList.remove('bg-blue-100');
+                    statusMessage.classList.add(command === 'ON' ? 'bg-green-100' : 'bg-red-100');
+                    statusMessage.classList.add(command === 'ON' ? 'border-green-500' : 'border-red-500');
+                    statusMessage.classList.add(command === 'ON' ? 'text-green-700' : 'text-red-700');
+                    return; // Success, exit the function
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    // If this was the last attempt, report failure
+                    if (i === maxRetries - 1) {
+                        statusText.textContent = `Failed to send command to NodeMCU after ${maxRetries} tries. Check network and IP address.`;
+                        statusMessage.classList.remove('bg-blue-100');
+                        statusMessage.classList.add('bg-red-100', 'border-red-500', 'text-red-700');
+                        return;
+                    }
+                    // Implement exponential backoff delay (1s, 2s, 4s)
+                    const delay = Math.pow(2, i) * 1000;
+                    statusText.textContent = `Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // Add event listeners to both buttons
+        buttons.forEach(button => {
+            button.addEventListener('click', () => {
+                const command = button.getAttribute('data-command');
+                sendCommand(command);
+            });
+        });
+    </script>
+
+</body>
+</html>
